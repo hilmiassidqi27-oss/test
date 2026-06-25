@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MBTI Sync Pro - Tes Kepribadian Real-time</title>
+    <title>MBTI PT. Dian Pandu Pratama - Tes Kepribadian Real-time</title>
     <!-- Tailwind CSS untuk Styling Modern -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React & React DOM via jsDelivr CDN (Sangat Cepat & Stabil di Indonesia) -->
@@ -37,7 +37,7 @@
         <!-- Loader Sederhana sebelum React Selesai Dimuat -->
         <div class="flex flex-col items-center justify-center min-h-screen space-y-4">
             <div class="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-            <p class="text-sm text-slate-400 animate-pulse">Menyiapkan Aplikasi MBTI Sync Pro...</p>
+            <p class="text-sm text-slate-400 animate-pulse">Menyiapkan Aplikasi MBTI PT. Dian Pandu Pratama ...</p>
         </div>
     </div>
 
@@ -231,7 +231,7 @@
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(22);
                 doc.setTextColor(255, 255, 255);
-                doc.text('MBTI Sync Pro', margin, 18);
+                doc.text('MBTI PT. Dian Pandu Pratama ', margin, 18);
 
                 doc.setFont('helvetica', 'normal');
                 doc.setFontSize(9);
@@ -396,7 +396,7 @@
                 doc.setFont('helvetica', 'italic');
                 doc.setFontSize(8);
                 doc.setTextColor(148, 163, 184);
-                doc.text('Laporan ini dibuat oleh MBTI Sync Pro — Analisis Kepribadian Jung Typology Framework', W / 2, y, { align: 'center' });
+                doc.text('Laporan ini dibuat oleh MBTI PT. Dian Pandu Pratama  — Analisis Kepribadian Jung Typology Framework', W / 2, y, { align: 'center' });
 
                 doc.save(`MBTI_${resultMBTI}_${userData.name.replace(/\s+/g, '_')}.pdf`);
             };
@@ -482,7 +482,7 @@
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(16);
                 doc.setTextColor(255, 255, 255);
-                doc.text('MBTI Sync Pro — Laporan Data Responden', margin, 12);
+                doc.text('MBTI PT. Dian Pandu Pratama  — Laporan Data Responden', margin, 12);
 
                 doc.setFont('helvetica', 'normal');
                 doc.setFontSize(8);
@@ -537,7 +537,7 @@
                         doc.setFont('helvetica', 'bold');
                         doc.setFontSize(9);
                         doc.setTextColor(255,255,255);
-                        doc.text('MBTI Sync Pro — Laporan Data Responden (lanjutan)', margin, 10);
+                        doc.text('MBTI PT. Dian Pandu Pratama  — Laporan Data Responden (lanjutan)', margin, 10);
                         y = 22;
                         x = margin;
                         doc.setFillColor(49, 46, 129);
@@ -608,7 +608,7 @@
                     doc.setFont('helvetica', 'italic');
                     doc.setFontSize(7);
                     doc.setTextColor(148, 163, 184);
-                    doc.text(`© MBTI Sync Pro  |  Halaman ${p} dari ${pageCount}`, W / 2, H - 3.5, { align: 'center' });
+                    doc.text(`© MBTI PT. Dian Pandu Pratama   |  Halaman ${p} dari ${pageCount}`, W / 2, H - 3.5, { align: 'center' });
                 }
 
                 doc.save(`Laporan_MBTI_${new Date().toISOString().slice(0, 10)}.pdf`);
@@ -688,7 +688,7 @@
 
                   <!-- Footer watermark -->
                   <div style="text-align:center;margin-top:24px;font-size:11px;color:#334155;">
-                    © MBTI Sync Pro · ${sub.formattedDate || new Date().toLocaleDateString('id-ID')}
+                    © MBTI PT. Dian Pandu Pratama  · ${sub.formattedDate || new Date().toLocaleDateString('id-ID')}
                   </div>
                 </div>`;
 
@@ -734,7 +734,7 @@
                                 <h1 className="text-lg font-bold text-white flex items-center">
                                     MBTI <span className="ml-2 text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded-full font-medium">Sync Pro</span>
                                 </h1>
-                                <p className="text-xs text-slate-400">Analisis Kepribadian & Ekspor Excel</p>
+                                <p className="text-xs text-slate-400">Analisis Kepribadian Anda</p>
                             </div>
                         </div>
                         <button 
@@ -1104,7 +1104,7 @@
 
                     {/* Footer */}
                     <footer className="bg-slate-950/40 border-t border-slate-800/80 py-4 text-center text-[10px] text-slate-600">
-                        <p>© 2026 MBTI Sync Pro. Dilengkapi Basis Data Real-time & Sistem Ekspor PDF Terintegrasi.</p>
+                        <p>© 2026 MBTI PT. Dian Pandu Pratama. Dilengkapi Basis Data Real-time & Sistem Ekspor PDF Terintegrasi.</p>
                     </footer>
                 </div>
             );
