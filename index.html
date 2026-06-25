@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MBTI Sync Pro - Tes Kepribadian Real-time</title>
+    <!-- Tailwind CSS untuk Styling Modern -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & React DOM via jsDelivr CDN (Sangat Cepat & Stabil di Indonesia) -->
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js" crossorigin></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- Babel untuk kompilasi JSX langsung di Browser -->
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.23.5/babel.min.js"></script>
+    <!-- jsPDF untuk generate PDF hasil tes -->
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <!-- html2canvas untuk screenshot kartu hasil per responden -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <!-- JSZip untuk mengemas semua gambar dalam satu file ZIP -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <!-- Firebase SDK Legacy/Compat (Mudah dijalankan di single file HTML) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <style>
+        /* Memastikan font Inter terpasang dengan baik */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col justify-between">
+
+    <!-- Wadah Penampil Error Visual Otomatis jika script gagal dimuat -->
+    <div id="error-display" class="hidden fixed inset-x-0 top-4 z-50 px-4"></div>
+
+    <!-- Container Utama untuk me-render React App -->
+    <div id="root">
+        <!-- Loader Sederhana sebelum React Selesai Dimuat -->
+        <div class="flex flex-col items-center justify-center min-h-screen space-y-4">
+            <div class="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+            <p class="text-sm text-slate-400 animate-pulse">Menyiapkan Aplikasi MBTI Sync Pro...</p>
+        </div>
+    </div>
+
+    <!-- Script Pendeteksi Error (Membantu debugging langsung di layar browser) -->
+    <script>
+        window.onerror = function(message, source, lineno, colno, error) {
+            const errDiv = document.getElementById('error-display');
+            if (errDiv) {
+                errDiv.innerHTML = `
+                    <div class="bg-rose-950/90 border-2 border-rose-500 text-rose-100 p-5 rounded-2xl max-w-2xl mx-auto shadow-2xl backdrop-blur-md space-y-2">
+                        <div class="flex items-center space-x-2 text-rose-400 font-bold">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <span>Terjadi Kesalahan Sistem (Javascript Error)</span>
+                        </div>
+                        <p class="text-xs md:text-sm"><strong>Pesan Error:</strong> ${message}</p>
+                        <p class="text-[11px] text-rose-300 font-mono">Lokasi: ${source}:${lineno}:${colno}</p>
+                        <p class="text-xs text-rose-400 mt-2">Saran: Bersihkan cache browser Anda atau pastikan semua library CDN terunduh dengan benar.</p>
+                    </div>
+                `;
+                errDiv.classList.remove('hidden');
+            }
+            return false;
+        };
+    </script>
+
+    <script type="text/babel">
+        // --- KONFIGURASI FIREBASE ---
+        const firebaseConfig = {
+            apiKey: "",
+            authDomain: "mbti-test-demo.firebaseapp.com",
+            projectId: "mbti-test-demo",
+            storageBucket: "mbti-test-demo.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abc123xyz"
+        };
+
+        let db = null;
+        try {
+            if (firebaseConfig.authDomain !== "mbti-test-demo.firebaseapp.com") {
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+            }
+        } catch (e) {
+            console.warn("Firebase tidak diaktifkan. Menggunakan penyimpanan lokal.");
+        }
+
+        // --- DATA SOAL TES MBTI (40 Soal — 32 Scoring + 8 Validity) ---
+        // type: "EI"|"SN"|"TF"|"JP"|"V" (V=validity, tidak dihitung)
+        const questions = [
+            // DIMENSI 1 — E vs I
+            { id: 1,  text: "Saat briefing sebelum kerja, saya aktif bertanya jika ada instruksi yang kurang jelas.", type: "EI", direction: 1 },
+            { id: 2,  text: "Saya lebih nyaman memahami instruksi sendiri tanpa banyak diskusi.", type: "EI", direction: -1 },
+            { id: 3,  text: "Saat ada kendala alat, saya langsung berkoordinasi dengan rekan kerja.", type: "EI", direction: 1 },
+            { id: 4,  text: "Sebelum melapor masalah, saya lebih suka menganalisis sendiri terlebih dahulu.", type: "EI", direction: -1 },
+            { id: 5,  text: "Saya mudah beradaptasi dengan anggota tim baru.", type: "EI", direction: 1 },
+            { id: 6,  text: "Saya lebih nyaman bekerja pada area yang minim interaksi.", type: "EI", direction: -1 },
+            { id: 7,  text: "Saya nyaman memberi update progres pekerjaan kepada atasan.", type: "EI", direction: 1 },
+            { id: 8,  text: "Saya lebih suka menyelesaikan pekerjaan tanpa banyak komunikasi.", type: "EI", direction: -1 },
+            { id: 9,  text: "Saya lebih memilih diam meskipun melihat rekan kerja melakukan kesalahan kecil. (R)", type: "V", direction: 0 },
+            { id: 10, text: "Menyampaikan kendala kepada atasan sering memperlambat pekerjaan. (R)", type: "V", direction: 0 },
+
+            // DIMENSI 2 — S vs N
+            { id: 11, text: "Saya selalu memastikan checklist kerja terisi lengkap.", type: "SN", direction: 1 },
+            { id: 12, text: "Saya sering menemukan pola masalah sebelum kerusakan besar terjadi.", type: "SN", direction: -1 },
+            { id: 13, text: "Saya fokus memeriksa detail kecil pada alat atau mesin.", type: "SN", direction: 1 },
+            { id: 14, text: "Saya cepat menangkap hubungan antar masalah operasional.", type: "SN", direction: -1 },
+            { id: 15, text: "Saya lebih percaya pada data aktual dibanding asumsi.", type: "SN", direction: 1 },
+            { id: 16, text: "Saya sering memprediksi potensi kendala sebelum terjadi.", type: "SN", direction: -1 },
+            { id: 17, text: "Saya teliti terhadap angka, indikator, dan parameter kerja.", type: "SN", direction: 1 },
+            { id: 18, text: "Saya sering memikirkan improvement proses kerja.", type: "SN", direction: -1 },
+            { id: 19, text: "Mengisi checklist atau laporan kerja tidak terlalu penting selama pekerjaan selesai. (R)", type: "V", direction: 0 },
+            { id: 20, text: "Risiko kecil di lapangan biasanya tidak perlu langsung dilaporkan. (R)", type: "V", direction: 0 },
+
+            // DIMENSI 3 — T vs F
+            { id: 21, text: "Dalam kondisi darurat, saya fokus pada tindakan paling efektif.", type: "TF", direction: 1 },
+            { id: 22, text: "Saya mempertimbangkan kondisi rekan sebelum memberi masukan.", type: "TF", direction: -1 },
+            { id: 23, text: "Aturan safety harus ditegakkan meski rekan dekat melanggar.", type: "TF", direction: 1 },
+            { id: 24, text: "Saya berusaha menegur rekan dengan cara yang tidak menyinggung.", type: "TF", direction: -1 },
+            { id: 25, text: "Saya mampu mengambil keputusan cepat saat tekanan tinggi.", type: "TF", direction: 1 },
+            { id: 26, text: "Kekompakan tim penting untuk keberhasilan pekerjaan.", type: "TF", direction: -1 },
+            { id: 27, text: "Saya menilai masalah berdasarkan fakta yang ada.", type: "TF", direction: 1 },
+            { id: 28, text: "Saya sering menjadi penengah saat ada konflik tim.", type: "TF", direction: -1 },
+            { id: 29, text: "Saya tidak pernah melakukan kesalahan sekecil apa pun saat bekerja. (R)", type: "V", direction: 0 },
+            { id: 30, text: "Saya selalu setuju dengan semua keputusan atasan tanpa pernah berbeda pendapat. (R)", type: "V", direction: 0 },
+
+            // DIMENSI 4 — J vs P
+            { id: 31, text: "Saya datang siap kerja sebelum shift dimulai.", type: "JP", direction: 1 },
+            { id: 32, text: "Saya nyaman menerima penugasan mendadak.", type: "JP", direction: -1 },
+            { id: 33, text: "Saya menyiapkan alat kerja sebelum digunakan.", type: "JP", direction: 1 },
+            { id: 34, text: "Saya cepat menyesuaikan diri saat kondisi lapangan berubah.", type: "JP", direction: -1 },
+            { id: 35, text: "Saya menyukai jadwal kerja yang terstruktur.", type: "JP", direction: 1 },
+            { id: 36, text: "Saya dapat improvisasi ketika terjadi gangguan operasional.", type: "JP", direction: -1 },
+            { id: 37, text: "Saya membuat urutan pekerjaan berdasarkan prioritas.", type: "JP", direction: 1 },
+            { id: 38, text: "Saya tetap efektif meskipun prioritas kerja berubah mendadak.", type: "JP", direction: -1 },
+            { id: 39, text: "Saya kadang melewati beberapa prosedur kerja jika pekerjaan sangat mendesak. (R)", type: "V", direction: 0 },
+            { id: 40, text: "Jika kondisi terlihat aman, penggunaan APD lengkap tidak selalu diperlukan. (R)", type: "V", direction: 0 },
+        ];
+
+        const mbtiDetails = {
+            ISTJ: { title: "Logistik / Inspektur", desc: "Individu yang praktis, mengutamakan fakta, sangat andal, dan berdedikasi tinggi pada aturan serta tradisi.", strengths: ["Jujur & Langsung", "Bertanggung Jawab", "Sangat Detail", "Tenang & Praktis"], weaknesses: ["Keras Kepala", "Kurang Sensitif terhadap Emosi", "Terlalu Kaku", "Suka Menyalahkan Diri"], careers: ["Akuntan", "Analis Keuangan", "Polisi/Militer", "Manajer Operasional"] },
+            ISFJ: { title: "Pembela / Pelindung", desc: "Pribadi yang sangat hangat, penuh kasih, protektif, dan selalu siap membela orang-orang terdekat mereka.", strengths: ["Sangat Suportif", "Dapat Diandalkan", "Sangat Peka", "Pekerja Keras & Setia"], weaknesses: ["Terlalu Rendah Hati", "Terlalu Memendam Perasaan", "Sulit Menolak", "Gampang Stres"], careers: ["Perawat / Tenaga Medis", "Guru/Pendidik", "Pekerja Sosial", "Customer Service"] },
+            INFJ: { title: "Advokat / Konselor", desc: "Tipe kepribadian paling langka. Idealis yang mistis namun sangat teratur, memiliki visi mendalam tentang manusia.", strengths: ["Kreatif", "Sangat Berprinsip", "Penuh Empati & Wawasan", "Bersemangat"], weaknesses: ["Sensitif terhadap Kritik", "Sangat Tertutup", "Perfeksionis", "Mudah Burnout"], careers: ["Penulis", "Psikolog / Konselor", "Aktivis Kemanusiaan", "HRD Specialist"] },
+            INTJ: { title: "Arsitek / Ahli Strategi", desc: "Pemikir taktis yang imajinatif sekaligus bertekad kuat, sangat mandiri, dan mencintai efisiensi tinggi.", strengths: ["Berpikiran Logis & Analitis", "Sangat Mandiri", "Inovatif", "Berpengetahuan Luas"], weaknesses: ["Sering Terlihat Arogan", "Terlalu Kritis", "Kurang Peka secara Sosial", "Overthinking"], careers: ["Software Engineer", "Ilmuwan / Peneliti", "Ahli Strategi Bisnis", "Arsitek"] },
+            ISTP: { title: "Pengrajin / Virtuoso", desc: "Eksperimenter yang berani dan praktis, ahli dalam menguasai segala jenis alat, mekanika, dan pemecahan masalah instan.", strengths: ["Optimis & Energetik", "Sangat Praktis", "Spontan & Kreatif", "Bagus dalam Krisis"], weaknesses: ["Sangat Keras Kepala", "Suka Menyendiri", "Mudah Bosan", "Kurang Suka Komitmen Kaku"], careers: ["Teknisi / Mekanik", "Pilot", "Ahli Forensik", "Pemadam Kebakaran"] },
+            ISFP: { title: "Petualang / Seniman", desc: "Seniman yang fleksibel, menawan, selalu siap mengeksplorasi hal-hal baru dan mengekspresikan diri lewat karya nyata.", strengths: ["Sangat Menawan", "Sensitif terhadap Estetika", "Imajinatif", "Sangat Fleksibel"], weaknesses: ["Sangat Mandiri", "Sulit Diprediksi", "Mudah Stres", "Terlalu Kompetitif"], careers: ["Desainer Grafis", "Fotografer", "Koki / Chef", "Musisi / Pekerja Seni"] },
+            INFP: { title: "Mediator / Idealis", desc: "Pribadi yang puitis, baik hati, altruistik, dan selalu bersemangat membantu tujuan-tujuan kemainan yang baik.", strengths: ["Sangat Peduli & Empati", "Sangat Kreatif", "Berpikiran Terbuka", "Berkomitmen Tinggi"], weaknesses: ["Terlalu Idealis", "Sering Mengabaikan Fakta", "Terlalu Sensitif", "Sulit Didekati"], careers: ["Penulis / Novelis", "Psikolog", "Penerjemah Bahasa", "Pekerja Seni Kreatif"] },
+            INTP: { title: "Logis / Pemikir", desc: "Penemu yang kreatif dengan rasa ingin tahu tinggi, sangat tertarik pada teori, sains, dan struktur analitis.", strengths: ["Sangat Analitis", "Orisinal & Kreatif", "Berpikiran Terbuka", "Sangat Jujur"], weaknesses: ["Sering Ragu-ragu", "Kurang Peka Perasaan", "Pelupa / Sulit Fokus", "Suka Meragukan Diri"], careers: ["Programmer / Data Scientist", "Fisikawan", "Analis Keamanan Siber", "Konsultan IT"] },
+            ESTP: { title: "Pengusaha / Dinamis", desc: "Orang yang cerdas, bertenaga, sangat ramah, dan sangat menikmati hidup di tepi jurang aksi nyata dan petualangan.", strengths: ["Berani & Tegas", "Sangat Rasional", "Keterampilan Sosial Hebat", "Peka Perubahan"], weaknesses: ["Kurang Peka Perasaan", "Suka Risiko Berbahaya", "Tidak Suka Aturan Ketat", "Sering Tertinggal Detail"], careers: ["Wirausahawan", "Sales / Marketing", "Pialang Saham", "Detektif / Agen Rahasia"] },
+            ESFP: { title: "Penghibur / Sosialis", desc: "Orang yang spontan, energik, bersemangat, dan selalu membuat suasana di sekitar mereka menjadi ceria dan hidup.", strengths: ["Sangat Menarik", "Suka Membantu Praktis", "Sosial Luar Biasa", "Sensitif Estetika"], weaknesses: ["Mudah Bosan", "Sulit Rencana Masa Depan", "Kurang Fokus Analisis", "Sensitif terhadap Konflik"], careers: ["Event Planner", "Aktor / Aktris", "Public Relations", "Pemandu Wisata"] },
+            ENFP: { title: "Juru Kampanye / Inspirator", desc: "Jiwa yang bebas, antusias, kreatif, komunikator ulung, dan selalu bisa menemukan alasan untuk tersenyum.", strengths: ["Sangat Kreatif", "Penuh Energi", "Komunikator Ulung", "Sangat Ramah"], weaknesses: ["Sulit Menjaga Fokus", "Sangat Butuh Persetujuan", "Overthinking", "Mudah Stres"], careers: ["Content Creator", "Jurnalis", "Manajer Pemasaran", "Motivator"] },
+            ENTP: { title: "Debat / Visioner", desc: "Pemikir cerdas yang tidak bisa menolak tantangan intelektual, sangat suka menganalisis argumen dari berbagai sudut.", strengths: ["Sangat Cerdas", "Pemikir Cepat", "Sangat Karismatik", "Suka Solusi Baru"], weaknesses: ["Sangat Suka Berdebat", "Kurang Toleran", "Sulit Fokus Implementasi", "Kurang Peka"], careers: ["Konsultan Bisnis", "Pengacara", "Product Manager", "Wirausahawan"] },
+            ESTJ: { title: "Eksekutif / Administrator", desc: "Administrator ulung, tidak tertandingi dalam mengelola segala sesuatu, baik itu orang, aturan, maupun proyek.", strengths: ["Sangat Terorganisir", "Setia & Berdedikasi", "Jujur & Terpercaya", "Pembuat Ketertiban"], weaknesses: ["Kaku & Keras Kepala", "Sulit Terima Perubahan", "Terlalu Menuntut", "Kurang Ekspresif"], careers: ["Manajer Proyek", "Direktur Keuangan", "Kepala Sekolah", "Pejabat Pemerintah"] },
+            ESFJ: { title: "Konsul / Penyedia", desc: "Orang-orang yang sangat sosial, peduli, populer, dan selalu bersemangat membantu sesama serta menjaga komunitas.", strengths: ["Rasa Tanggung Jawab Kuat", "Sangat Setia & Peduli", "Hebat Menjalin Hubungan", "Sangat Hangat"], weaknesses: ["Khawatir Status Sosial", "Sering Butuh Pujian", "Tidak Suka Perubahan Keras", "Menolak Konflik"], careers: ["Guru Sekolah", "Pekerja Sosial Medis", "Manajer HRD", "Hubungan Masyarakat"] },
+            ENFJ: { title: "Protagonis / Pemimpin Karismatik", desc: "Pemimpin karismatik yang penuh inspirasi, mampu memikat pendengar dan memotivasi orang untuk mencapai potensi terbaik.", strengths: ["Sangat Karismatik", "Sangat Peduli", "Komunikator Ulung", "Pemimpin Alami"], weaknesses: ["Terlalu Idealistis", "Terlalu Peka Kritik", "Sering Korban Diri", "Sulit Keputusan Keras"], careers: ["Guru / Profesor", "Pemimpin Organisasi", "Konselor", "Aktivis LSM"] },
+            ENTJ: { title: "Komandan / Pemimpin Strategis", desc: "Pemimpin visioner yang berani, bertekad kuat, selalu menemukan jalan atau menciptakan jalan baru untuk kesuksesan.", strengths: ["Sangat Efisien", "Percaya Diri Tinggi", "Bertekad Kuat", "Pemikir Strategis"], weaknesses: ["Keras Kepala", "Kurang Sabar", "Kurang Peka Emosi", "Sering Terlihat Kejam"], careers: ["CEO / Direktur Utama", "Konsultan Manajemen", "Venture Capitalist", "Pengacara Korporasi"] }
+        };
+
+        function App() {
+            const [step, setStep] = React.useState('welcome'); // welcome, test, result, admin
+            const [userData, setUserData] = React.useState({ name: '', email: '', whatsapp: '', nik: '', position: '', area: '' });
+            const [answers, setAnswers] = React.useState({});
+            const answersRef = React.useRef({});
+            const [currentQIndex, setCurrentQIndex] = React.useState(0);
+            const [resultMBTI, setResultMBTI] = React.useState(null);
+            const [savedSubmissions, setSavedSubmissions] = React.useState([]);
+            const [adminPassword, setAdminPassword] = React.useState('');
+            const [isAdminLoggedIn, setIsAdminLoggedIn] = React.useState(false);
+            const [adminError, setAdminError] = React.useState('');
+            const [scorePercentages, setScorePercentages] = React.useState({ EI: 50, SN: 50, TF: 50, JP: 50 });
+            const [searchQuery, setSearchQuery] = React.useState('');
+
+            // Mengambil data awal dari LocalStorage sebagai fallback offline
+            React.useEffect(() => {
+                // Deteksi URL rahasia admin: ?admin=true
+                const params = new URLSearchParams(window.location.search);
+                if (params.get('admin') === 'true') {
+                    setStep('admin');
+                    // Bersihkan URL agar tidak terlihat di address bar setelah masuk
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                }
+
+                const localData = localStorage.getItem('mbti_submissions');
+                if (localData) {
+                    setSavedSubmissions(JSON.parse(localData));
+                }
+
+                // Jika Firebase aktif, sinkronisasikan data secara real-time
+                if (db) {
+                    const unsubscribe = db.collection('mbti_submissions').onSnapshot((snapshot) => {
+                        const data = [];
+                        snapshot.forEach((doc) => {
+                            data.push({ id: doc.id, ...doc.data() });
+                        });
+                        data.sort((a, b) => b.timestamp - a.timestamp);
+                        setSavedSubmissions(data);
+                        localStorage.setItem('mbti_submissions', JSON.stringify(data));
+                    }, (error) => {
+                        console.error("Firebase error: ", error);
+                    });
+                    return () => unsubscribe();
+                }
+            }, []);
+
+            const handleStartTest = (e) => {
+                e.preventDefault();
+                if (!userData.name.trim() || !userData.email.trim() || !userData.nik.trim() || !userData.area.trim()) {
+                    alert("Nama Lengkap, Email, NIK, dan Area Kerja harus diisi!");
+                    return;
+                }
+                setStep('test');
+                setCurrentQIndex(0);
+                setAnswers({});
+                answersRef.current = {};
+            };
+
+            const handleAnswerSelect = (score) => {
+                const currentQ = questions[currentQIndex];
+                const newAnswers = { ...answersRef.current, [currentQ.id]: score };
+                answersRef.current = newAnswers;
+                setAnswers(newAnswers);
+                // Hanya auto-lanjut jika BUKAN soal terakhir
+                if (currentQIndex < questions.length - 1) {
+                    setTimeout(() => {
+                        setCurrentQIndex(prev => prev + 1);
+                    }, 150);
+                }
+            };
+
+            const downloadPDF = () => {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                const detail = mbtiDetails[resultMBTI];
+                const W = 210; // A4 width mm
+                const margin = 18;
+                const contentW = W - margin * 2;
+                let y = 0;
+
+                // ── HEADER background ──
+                doc.setFillColor(30, 41, 59); // slate-800
+                doc.rect(0, 0, W, 48, 'F');
+
+                // Logo strip
+                doc.setFillColor(99, 102, 241); // indigo-500
+                doc.rect(0, 0, 5, 48, 'F');
+
+                // Title
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(22);
+                doc.setTextColor(255, 255, 255);
+                doc.text('MBTI Sync Pro', margin, 18);
+
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(9);
+                doc.setTextColor(148, 163, 184); // slate-400
+                doc.text('Laporan Analisis Kepribadian', margin, 26);
+
+                // Tanggal
+                const now = new Date().toLocaleDateString('id-ID', { year:'numeric', month:'long', day:'numeric' });
+                doc.setFontSize(8);
+                doc.text(`Diterbitkan: ${now}`, W - margin, 26, { align: 'right' });
+
+                // Nama & Email
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(10);
+                doc.setTextColor(255,255,255);
+                doc.text(`Nama  : ${userData.name}`, margin, 36);
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(9);
+                doc.setTextColor(148, 163, 184);
+                doc.text(`Email : ${userData.email}${userData.whatsapp ? '   |   WA: ' + userData.whatsapp : ''}`, margin, 43);
+
+                y = 58;
+
+                // ── MBTI TYPE BADGE ──
+                doc.setFillColor(238, 242, 255); // indigo-50
+                doc.roundedRect(margin, y, contentW, 32, 4, 4, 'F');
+
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(36);
+                doc.setTextColor(79, 70, 229); // indigo-600
+                doc.text(resultMBTI, margin + 8, y + 22);
+
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(13);
+                doc.setTextColor(30, 41, 59);
+                doc.text(detail.title, margin + 50, y + 13);
+
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(9);
+                doc.setTextColor(71, 85, 105);
+                const descLines = doc.splitTextToSize(detail.desc, contentW - 55);
+                doc.text(descLines, margin + 50, y + 22);
+
+                y += 42;
+
+                // ── PERSENTASE ASPEK ──
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(11);
+                doc.setTextColor(30, 41, 59);
+                doc.text('Persentase Aspek', margin, y);
+                y += 6;
+
+                const aspects = [
+                    { left: 'E', right: 'I', pct: scorePercentages.EI },
+                    { left: 'S', right: 'N', pct: scorePercentages.SN },
+                    { left: 'T', right: 'F', pct: scorePercentages.TF },
+                    { left: 'J', right: 'P', pct: scorePercentages.JP },
+                ];
+                const barW = contentW - 28;
+                aspects.forEach(({ left, right, pct }) => {
+                    // Labels
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(9);
+                    doc.setTextColor(30, 41, 59);
+                    doc.text(`${left} (${pct}%)`, margin, y + 4.5);
+                    doc.text(`${right} (${100 - pct}%)`, W - margin, y + 4.5, { align: 'right' });
+
+                    // Track
+                    const bx = margin + 22;
+                    doc.setFillColor(226, 232, 240); // slate-200
+                    doc.roundedRect(bx, y, barW, 5, 2, 2, 'F');
+
+                    // Left fill (indigo)
+                    doc.setFillColor(99, 102, 241);
+                    doc.roundedRect(bx, y, barW * pct / 100, 5, 2, 2, 'F');
+
+                    // Right fill (purple)
+                    const rx = bx + barW * pct / 100;
+                    const rw = barW * (100 - pct) / 100;
+                    if (rw > 0) {
+                        doc.setFillColor(168, 85, 247);
+                        doc.roundedRect(rx, y, rw, 5, 2, 2, 'F');
+                    }
+                    y += 12;
+                });
+
+                y += 4;
+
+                // ── TWO COLUMN SECTION ──
+                const colW = (contentW - 6) / 2;
+
+                // -- Kekuatan --
+                doc.setFillColor(240, 253, 244); // emerald-50
+                doc.roundedRect(margin, y, colW, 6, 2, 2, 'F');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(10);
+                doc.setTextColor(21, 128, 61); // emerald-700
+                doc.text('Kekuatan Utama', margin + 3, y + 4.2);
+                y += 9;
+
+                detail.strengths.forEach((st, i) => {
+                    const sx = margin + (i % 2 === 0 ? 0 : colW / 2 + 2);
+                    if (i % 2 === 0 && i > 0) y += 7;
+                    doc.setFillColor(220, 252, 231);
+                    doc.roundedRect(sx, y, colW / 2 - 2, 6, 1.5, 1.5, 'F');
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(8.5);
+                    doc.setTextColor(21, 128, 61);
+                    doc.text(`✓  ${st}`, sx + 2.5, y + 4.2);
+                });
+                y += 11;
+
+                // -- Rekomendasi Karir --
+                const col2x = margin + colW + 6;
+                let y2 = y - (detail.strengths.length > 2 ? 18 : 11) - 9;
+
+                doc.setFillColor(238, 242, 255);
+                doc.roundedRect(col2x, y2, colW, 6, 2, 2, 'F');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(10);
+                doc.setTextColor(67, 56, 202);
+                doc.text('Rekomendasi Karir', col2x + 3, y2 + 4.2);
+                y2 += 9;
+
+                detail.careers.forEach(car => {
+                    doc.setFillColor(224, 231, 255);
+                    doc.roundedRect(col2x, y2, colW, 6, 1.5, 1.5, 'F');
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(8.5);
+                    doc.setTextColor(67, 56, 202);
+                    doc.text(`▸  ${car}`, col2x + 2.5, y2 + 4.2);
+                    y2 += 8;
+                });
+
+                y = Math.max(y, y2) + 4;
+
+                // ── TANTANGAN ──
+                doc.setFillColor(255, 241, 242);
+                doc.roundedRect(margin, y, contentW, 6, 2, 2, 'F');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(10);
+                doc.setTextColor(190, 18, 60);
+                doc.text('Tantangan Pengembangan', margin + 3, y + 4.2);
+                y += 9;
+
+                detail.weaknesses.forEach(we => {
+                    doc.setFillColor(255, 228, 230);
+                    doc.roundedRect(margin, y, contentW, 6, 1.5, 1.5, 'F');
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(8.5);
+                    doc.setTextColor(159, 18, 57);
+                    doc.text(`•  ${we}`, margin + 3, y + 4.2);
+                    y += 8;
+                });
+
+                // ── FOOTER ──
+                y += 8;
+                doc.setDrawColor(226, 232, 240);
+                doc.setLineWidth(0.4);
+                doc.line(margin, y, W - margin, y);
+                y += 5;
+                doc.setFont('helvetica', 'italic');
+                doc.setFontSize(8);
+                doc.setTextColor(148, 163, 184);
+                doc.text('Laporan ini dibuat oleh MBTI Sync Pro — Analisis Kepribadian Jung Typology Framework', W / 2, y, { align: 'center' });
+
+                doc.save(`MBTI_${resultMBTI}_${userData.name.replace(/\s+/g, '_')}.pdf`);
+            };
+
+            const calculateResult = () => {
+                try {
+                    // Gunakan answersRef.current agar selalu dapat nilai terbaru
+                    // bahkan jika state belum terupdate di mobile (render delay)
+                    const latestAnswers = answersRef.current;
+                    let scores = { EI: 0, SN: 0, TF: 0, JP: 0 };
+                    questions.forEach(q => {
+                        if (q.type === 'V') return; // lewati soal validity
+                        const answerVal = latestAnswers[q.id] || 0;
+                        scores[q.type] += answerVal * q.direction;
+                    });
+
+                    // 8 soal scoring per dimensi, nilai maks ±16
+                    const getPercentage = (score) => Math.min(100, Math.max(0, Math.round(((score + 16) / 32) * 100)));
+
+                    const eiPct = getPercentage(scores.EI);
+                    const snPct = getPercentage(scores.SN);
+                    const tfPct = getPercentage(scores.TF);
+                    const jpPct = getPercentage(scores.JP);
+
+                    const mbtiString = [
+                        eiPct >= 50 ? 'E' : 'I',
+                        snPct >= 50 ? 'S' : 'N',
+                        tfPct >= 50 ? 'T' : 'F',
+                        jpPct >= 50 ? 'J' : 'P'
+                    ].join('');
+
+                    const submission = {
+                        name: userData.name,
+                        nik: userData.nik || '-',
+                        position: userData.position || '-',
+                        area: userData.area || '-',
+                        email: userData.email,
+                        whatsapp: userData.whatsapp || '-',
+                        mbti: mbtiString,
+                        percentages: { E: eiPct, I: 100 - eiPct, S: snPct, N: 100 - snPct, T: tfPct, F: 100 - tfPct, J: jpPct, P: 100 - jpPct },
+                        timestamp: Date.now(),
+                        formattedDate: new Date().toLocaleDateString('id-ID', {
+                            year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                        })
+                    };
+
+                    // Gunakan functional update agar tidak stale closure
+                    setSavedSubmissions(prev => {
+                        const updatedList = [submission, ...prev];
+                        localStorage.setItem('mbti_submissions', JSON.stringify(updatedList));
+                        return updatedList;
+                    });
+
+                    // Set semua state hasil sekaligus sebelum pindah step
+                    setScorePercentages({ EI: eiPct, SN: snPct, TF: tfPct, JP: jpPct });
+                    setResultMBTI(mbtiString);
+                    setStep('result');
+
+                    // Simpan ke Firebase di background (tidak memblokir UI)
+                    if (db) {
+                        db.collection('mbti_submissions').add(submission)
+                            .catch(e => console.error("Gagal simpan ke cloud database:", e));
+                    }
+                } catch (e) {
+                    console.error("Error saat menghitung hasil:", e);
+                    alert("Terjadi kesalahan saat memproses hasil. Silakan coba lagi.");
+                }
+            };
+
+            const exportToPDF = () => {
+                if (savedSubmissions.length === 0) {
+                    alert("Belum ada data untuk diekspor!");
+                    return;
+                }
+
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+                const W = 297; const H = 210;
+                const margin = 14;
+                const now = new Date().toLocaleDateString('id-ID', { year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit' });
+
+                // ── HEADER ──
+                doc.setFillColor(30, 41, 59);
+                doc.rect(0, 0, W, 28, 'F');
+                doc.setFillColor(99, 102, 241);
+                doc.rect(0, 0, 5, 28, 'F');
+
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(16);
+                doc.setTextColor(255, 255, 255);
+                doc.text('MBTI Sync Pro — Laporan Data Responden', margin, 12);
+
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(8);
+                doc.setTextColor(148, 163, 184);
+                doc.text(`Dicetak: ${now}   |   Total Responden: ${savedSubmissions.length}`, margin, 21);
+
+                // ── TABLE HEADER ──
+                const cols = [
+                    { label: 'No', w: 10 },
+                    { label: 'Nama Lengkap', w: 44 },
+                    { label: 'Email', w: 52 },
+                    { label: 'WhatsApp', w: 32 },
+                    { label: 'MBTI', w: 18 },
+                    { label: 'E%', w: 12 },
+                    { label: 'I%', w: 12 },
+                    { label: 'S%', w: 12 },
+                    { label: 'N%', w: 12 },
+                    { label: 'T%', w: 12 },
+                    { label: 'F%', w: 12 },
+                    { label: 'J%', w: 12 },
+                    { label: 'P%', w: 12 },
+                    { label: 'Tanggal Tes', w: 38 },
+                ];
+
+                let y = 36;
+                const rowH = 8;
+                let x = margin;
+
+                // Header row
+                doc.setFillColor(49, 46, 129);
+                doc.rect(margin, y, W - margin * 2, rowH, 'F');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(7);
+                doc.setTextColor(199, 210, 254);
+                cols.forEach(col => {
+                    doc.text(col.label, x + 1.5, y + 5.5);
+                    x += col.w;
+                });
+                y += rowH;
+
+                // Data rows
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(7.5);
+
+                savedSubmissions.forEach((sub, i) => {
+                    // Check if new page needed
+                    if (y + rowH > H - 16) {
+                        doc.addPage();
+                        // Repeat header on new page
+                        doc.setFillColor(30, 41, 59);
+                        doc.rect(0, 0, W, 16, 'F');
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(9);
+                        doc.setTextColor(255,255,255);
+                        doc.text('MBTI Sync Pro — Laporan Data Responden (lanjutan)', margin, 10);
+                        y = 22;
+                        x = margin;
+                        doc.setFillColor(49, 46, 129);
+                        doc.rect(margin, y, W - margin * 2, rowH, 'F');
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(7);
+                        doc.setTextColor(199, 210, 254);
+                        cols.forEach(col => { doc.text(col.label, x + 1.5, y + 5.5); x += col.w; });
+                        y += rowH;
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(7.5);
+                    }
+
+                    const isEven = i % 2 === 0;
+                    doc.setFillColor(isEven ? 248 : 241, isEven ? 250 : 245, isEven ? 252 : 249);
+                    doc.rect(margin, y, W - margin * 2, rowH, 'F');
+
+                    doc.setTextColor(30, 41, 59);
+                    x = margin;
+
+                    const pct = sub.percentages || {};
+                    const cells = [
+                        String(i + 1),
+                        sub.name,
+                        sub.email,
+                        sub.whatsapp || '-',
+                        sub.mbti,
+                        String(pct.E ?? 50),
+                        String(pct.I ?? 50),
+                        String(pct.S ?? 50),
+                        String(pct.N ?? 50),
+                        String(pct.T ?? 50),
+                        String(pct.F ?? 50),
+                        String(pct.J ?? 50),
+                        String(pct.P ?? 50),
+                        sub.formattedDate || '-',
+                    ];
+
+                    cells.forEach((cell, ci) => {
+                        const colW = cols[ci].w;
+                        if (ci === 4) {
+                            // MBTI badge color
+                            doc.setTextColor(79, 70, 229);
+                            doc.setFont('helvetica', 'bold');
+                        } else {
+                            doc.setTextColor(30, 41, 59);
+                            doc.setFont('helvetica', 'normal');
+                        }
+                        const truncated = doc.splitTextToSize(cell, colW - 2)[0] || '';
+                        doc.text(truncated, x + 1.5, y + 5.5);
+                        x += colW;
+                    });
+
+                    // Row border
+                    doc.setDrawColor(226, 232, 240);
+                    doc.setLineWidth(0.2);
+                    doc.line(margin, y + rowH, W - margin, y + rowH);
+
+                    y += rowH;
+                });
+
+                // ── FOOTER ──
+                const pageCount = doc.getNumberOfPages();
+                for (let p = 1; p <= pageCount; p++) {
+                    doc.setPage(p);
+                    doc.setFillColor(30, 41, 59);
+                    doc.rect(0, H - 10, W, 10, 'F');
+                    doc.setFont('helvetica', 'italic');
+                    doc.setFontSize(7);
+                    doc.setTextColor(148, 163, 184);
+                    doc.text(`© MBTI Sync Pro  |  Halaman ${p} dari ${pageCount}`, W / 2, H - 3.5, { align: 'center' });
+                }
+
+                doc.save(`Laporan_MBTI_${new Date().toISOString().slice(0, 10)}.pdf`);
+            };
+
+            // Fungsi generate canvas kartu hasil (dipakai oleh downloadResultImage & exportAllImages)
+            const generateResultCanvas = (sub) => {
+                const detail = mbtiDetails[sub.mbti];
+                if (!detail) return Promise.reject('MBTI tidak dikenali');
+                const pct = sub.percentages || { E:50, I:50, S:50, N:50, T:50, F:50, J:50, P:50 };
+
+                const wrapper = document.createElement('div');
+                wrapper.style.cssText = 'position:fixed;left:-9999px;top:0;z-index:-1;';
+                wrapper.innerHTML = `
+                <div id="mbti-capture-card-${sub.nik || sub.email}" style="width:900px;background:#0f172a;font-family:Inter,sans-serif;padding:40px;box-sizing:border-box;">
+                  <div style="background:#1e293b;border-radius:16px;padding:32px 36px;margin-bottom:24px;border:1px solid #334155;position:relative;overflow:hidden;">
+                    <div style="position:absolute;top:-40px;right:-40px;width:180px;height:180px;background:rgba(99,102,241,0.08);border-radius:50%;"></div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:24px;">
+                      <div>
+                        <div style="display:inline-block;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;font-size:11px;font-weight:700;padding:4px 12px;border-radius:999px;letter-spacing:1px;margin-bottom:12px;">ANALISIS KEPRIBADIAN SELESAI</div>
+                        <p style="color:#94a3b8;font-size:14px;margin:0 0 6px;">Halo <strong style="color:#fff;">${sub.name}</strong>, tipe kepribadian Anda adalah:</p>
+                        <div style="font-size:72px;font-weight:900;color:#818cf8;letter-spacing:6px;line-height:1;font-family:monospace;">${sub.mbti}</div>
+                        <div style="font-size:20px;font-weight:700;color:#fff;margin-top:8px;">Sang ${detail.title}</div>
+                        <div style="font-size:12px;color:#64748b;margin-top:6px;">
+                          NIK: ${sub.nik || '-'} &nbsp;·&nbsp; ${sub.position || '-'} &nbsp;·&nbsp; ${sub.area || '-'}<br/>
+                          ${sub.email}${sub.whatsapp && sub.whatsapp !== '-' ? ' · WA: ' + sub.whatsapp : ''}
+                        </div>
+                      </div>
+                      <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:20px 24px;min-width:280px;">
+                        <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">PERSENTASE ASPEK ANDA:</div>
+                        ${[['E','I',pct.E??50],['S','N',pct.S??50],['T','F',pct.T??50],['J','P',pct.J??50]].map(([l,r,p])=>`
+                          <div style="margin-bottom:12px;">
+                            <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;color:#e2e8f0;margin-bottom:5px;"><span>${l} (${p}%)</span><span>${r} (${100-p}%)</span></div>
+                            <div style="background:#1e293b;border-radius:999px;height:8px;overflow:hidden;display:flex;">
+                              <div style="background:#6366f1;width:${p}%;height:100%;border-radius:999px 0 0 999px;"></div>
+                              <div style="background:#a855f7;width:${100-p}%;height:100%;border-radius:0 999px 999px 0;"></div>
+                            </div>
+                          </div>`).join('')}
+                      </div>
+                    </div>
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+                    <div style="background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;">
+                      <div style="font-size:16px;font-weight:700;color:#fff;margin-bottom:10px;">Deskripsi Karakter</div>
+                      <p style="font-size:13px;color:#94a3b8;line-height:1.7;margin:0 0 20px;">${detail.desc}</p>
+                      <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:10px;">Kekuatan Utama</div>
+                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                        ${detail.strengths.map(s=>`<div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);color:#6ee7b7;font-size:12px;padding:8px 10px;border-radius:8px;">✓ ${s}</div>`).join('')}
+                      </div>
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;">
+                      <div style="font-size:16px;font-weight:700;color:#fff;margin-bottom:10px;">Rekomendasi Karir</div>
+                      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;">
+                        ${detail.careers.map(c=>`<span style="background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.25);color:#a5b4fc;font-size:12px;padding:6px 12px;border-radius:8px;">${c}</span>`).join('')}
+                      </div>
+                      <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:10px;">Tantangan Pengembangan</div>
+                      <div style="display:flex;flex-direction:column;gap:8px;">
+                        ${detail.weaknesses.map(w=>`<div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.2);color:#fda4af;font-size:12px;padding:8px 12px;border-radius:8px;">• ${w}</div>`).join('')}
+                      </div>
+                    </div>
+                  </div>
+                  <div style="text-align:center;margin-top:24px;font-size:11px;color:#334155;">
+                    © MBTI Sync Pro · ${sub.formattedDate || new Date().toLocaleDateString('id-ID')}
+                  </div>
+                </div>`;
+
+                document.body.appendChild(wrapper);
+                const card = wrapper.querySelector('[id^="mbti-capture-card"]');
+                return html2canvas(card, { backgroundColor: '#0f172a', scale: 2, useCORS: true, logging: false })
+                    .finally(() => document.body.removeChild(wrapper));
+            };
+
+            const downloadResultImage = (sub) => {
+                generateResultCanvas(sub)
+                    .then(canvas => {
+                        const link = document.createElement('a');
+                        link.download = `MBTI_${sub.mbti}_${sub.name.replace(/\s+/g,'_')}.png`;
+                        link.href = canvas.toDataURL('image/png');
+                        link.click();
+                    })
+                    .catch(err => {
+                        console.error('Gagal membuat gambar:', err);
+                        alert('Gagal membuat gambar. Coba lagi.');
+                    });
+            };
+
+            const [exportProgress, setExportProgress] = React.useState('');
+
+            const exportAllImages = async () => {
+                if (savedSubmissions.length === 0) { alert('Belum ada data!'); return; }
+                const zip = new JSZip();
+                setExportProgress(`Memproses 0 / ${savedSubmissions.length}...`);
+                for (let i = 0; i < savedSubmissions.length; i++) {
+                    const sub = savedSubmissions[i];
+                    setExportProgress(`Memproses ${i + 1} / ${savedSubmissions.length}: ${sub.name}...`);
+                    try {
+                        const canvas = await generateResultCanvas(sub);
+                        const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+                        const filename = `${String(i+1).padStart(3,'0')}_${sub.mbti}_${sub.name.replace(/\s+/g,'_')}.png`;
+                        zip.file(filename, blob);
+                    } catch(e) {
+                        console.error(`Gagal proses ${sub.name}:`, e);
+                    }
+                }
+                setExportProgress('Mengemas ZIP...');
+                const zipBlob = await zip.generateAsync({ type: 'blob' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(zipBlob);
+                link.download = `Hasil_MBTI_Semua_${new Date().toISOString().slice(0,10)}.zip`;
+                link.click();
+                setExportProgress('');
+            };
+
+            const handleAdminLogin = (e) => {
+                e.preventDefault();
+                if (adminPassword === 'adminmbti123') {
+                    setIsAdminLoggedIn(true);
+                    setAdminError('');
+                } else {
+                    setAdminError('Kata sandi admin salah! Gunakan: adminmbti123');
+                }
+            };
+
+            return (
+                <div className="flex flex-col min-h-screen">
+                    {/* Header */}
+                    <header className="bg-slate-800 border-b border-slate-700 py-4 px-6 shadow-lg flex justify-between items-center">
+                        <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setStep('welcome')}>
+                            <div className="bg-indigo-600 p-2 rounded-xl text-white shadow-md">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h1 className="text-lg font-bold text-white flex items-center">
+                                    MBTI <span className="ml-2 text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded-full font-medium">Sync Pro</span>
+                                </h1>
+                                <p className="text-xs text-slate-400">Analisis Kepribadian & Ekspor Excel</p>
+                            </div>
+                        </div>
+                        <button 
+                            onClick={() => setStep(step === 'admin' ? 'welcome' : 'admin')}
+                            className="bg-slate-700 hover:bg-slate-600 text-slate-100 text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center space-x-1.5"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0" />
+                            </svg>
+                            <span>{isAdminLoggedIn ? "Dasbor Admin" : "Admin Panel"}</span>
+                        </button>
+                    </header>
+
+                    {/* Konten Utama */}
+                    <main className="flex-grow flex items-center justify-center p-4 md:p-8 max-w-6xl mx-auto w-full">
+                        
+                        {/* 1. TAMPILAN WELCOME */}
+                        {step === 'welcome' && (
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full items-center">
+                                <div className="space-y-5">
+                                    <span className="inline-block bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider">
+                                        Jung Typology Framework
+                                    </span>
+                                    <h2 className="text-4xl md:text-5xl font-extrabold text-white leading-tight">
+                                        Analisis <span className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">Kepribadian Sejati</span> Anda
+                                    </h2>
+                                    <p className="text-slate-300 leading-relaxed">
+                                        Mulai tes gratis berdurasi 3 menit kami untuk memetakan kepribadian Anda dalam aspek karir, sosial, komunikasi, dan gaya belajar.
+                                    </p>
+                                    <div className="flex space-x-4">
+                                        <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 flex-1 text-center">
+                                            <div className="text-indigo-400 font-bold text-xl">24 Soal</div>
+                                            <div className="text-xs text-slate-400">Cepat & Seimbang</div>
+                                        </div>
+                                        <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 flex-1 text-center">
+                                            <div className="text-purple-400 font-bold text-xl">16 Tipe</div>
+                                            <div className="text-xs text-slate-400">Laporan Akurat</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 md:p-8 shadow-xl">
+                                    <h3 className="text-xl font-bold mb-4 flex items-center text-white">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                        </svg>
+                                        Data Diri Responden
+                                    </h3>
+                                    <form onSubmit={handleStartTest} className="space-y-4">
+                                        <div>
+                                            <label className="block text-xs text-slate-400 font-bold uppercase mb-1">Nama Lengkap *</label>
+                                            <input required type="text" value={userData.name} onChange={e => setUserData({...userData, name: e.target.value})} placeholder="Contoh: Hilmi" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-slate-400 font-bold uppercase mb-1">NIK *</label>
+                                            <input required type="text" value={userData.nik} onChange={e => setUserData({...userData, nik: e.target.value})} placeholder="Nomor Induk Karyawan" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-slate-400 font-bold uppercase mb-1">Posisi Jabatan *</label>
+                                            <input required type="text" value={userData.position} onChange={e => setUserData({...userData, position: e.target.value})} placeholder="Contoh: Operator Produksi" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-slate-400 font-bold uppercase mb-1">Area Kerja *</label>
+                                            <input required type="text" value={userData.area} onChange={e => setUserData({...userData, area: e.target.value})} placeholder="Contoh: Area Produksi A" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-slate-400 font-bold uppercase mb-1">Email Aktif *</label>
+                                            <input required type="email" value={userData.email} onChange={e => setUserData({...userData, email: e.target.value})} placeholder="Contoh: nama@domain.com" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-slate-400 font-bold uppercase mb-1">No. WhatsApp (Opsional)</label>
+                                            <input type="tel" value={userData.whatsapp} onChange={e => setUserData({...userData, whatsapp: e.target.value})} placeholder="Contoh: 0812345678" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                                        </div>
+                                        <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 px-6 rounded-xl shadow-lg shadow-indigo-600/30 flex justify-center items-center space-x-2 transition-all">
+                                            <span>Mulai Tes Sekarang</span>
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                                            </svg>
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 2. TAMPILAN TES JAWABAN */}
+                        {step === 'test' && (
+                            <div className="w-full max-w-3xl bg-slate-800 border border-slate-700 rounded-2xl p-6 md:p-8 shadow-xl">
+                                <div className="flex justify-between items-center mb-6">
+                                    <span className="text-xs bg-indigo-500/10 text-indigo-400 px-3 py-1 rounded-full border border-indigo-500/20 font-bold">
+                                        SOAL {currentQIndex + 1} DARI {questions.length}
+                                    </span>
+                                    <span className="text-xs text-slate-400">{Math.round((currentQIndex / questions.length) * 100)}% Selesai</span>
+                                </div>
+
+                                <div className="w-full bg-slate-900 h-2 rounded-full mb-8 overflow-hidden">
+                                    <div className="bg-indigo-500 h-full transition-all duration-300" style={{ width: `${(currentQIndex / questions.length) * 100}%` }}></div>
+                                </div>
+
+                                <div className="min-h-[120px] flex items-center justify-center text-center my-6">
+                                    <p className="text-lg md:text-xl font-medium text-slate-100">
+                                        "{questions[currentQIndex].text}"
+                                    </p>
+                                </div>
+
+                                <div className="space-y-6 pt-4">
+                                    <div className="flex flex-col md:flex-row justify-between items-center md:space-x-4 space-y-4 md:space-y-0">
+                                        <span className="text-xs text-emerald-400 font-bold tracking-wider">SETUJU</span>
+                                        
+                                        <div className="flex items-center space-x-3 md:space-x-4">
+                                            {/* Sangat Setuju */}
+                                            <button onClick={() => handleAnswerSelect(2)} className="w-14 h-14 rounded-full bg-emerald-500/10 hover:bg-emerald-500 border-2 border-emerald-500 text-emerald-400 hover:text-white flex items-center justify-center font-bold text-lg transition-all scale-105 hover:scale-115">
+                                                +2
+                                            </button>
+                                            {/* Setuju */}
+                                            <button onClick={() => handleAnswerSelect(1)} className="w-12 h-12 rounded-full bg-emerald-500/5 hover:bg-emerald-500/80 border-2 border-emerald-500/40 text-emerald-300 hover:text-white flex items-center justify-center font-semibold text-sm transition-all hover:scale-110">
+                                                +1
+                                            </button>
+                                            {/* Netral */}
+                                            <button onClick={() => handleAnswerSelect(0)} className="w-10 h-10 rounded-full bg-slate-700 hover:bg-slate-600 border border-slate-500 text-slate-300 flex items-center justify-center text-xs transition-all hover:scale-110">
+                                                0
+                                            </button>
+                                            {/* Tidak Setuju */}
+                                            <button onClick={() => handleAnswerSelect(-1)} className="w-12 h-12 rounded-full bg-rose-500/5 hover:bg-rose-500/80 border-2 border-rose-500/40 text-rose-300 hover:text-white flex items-center justify-center font-semibold text-sm transition-all hover:scale-110">
+                                                -1
+                                            </button>
+                                            {/* Sangat Tidak Setuju */}
+                                            <button onClick={() => handleAnswerSelect(-2)} className="w-14 h-14 rounded-full bg-rose-500/10 hover:bg-rose-500 border-2 border-rose-500 text-rose-400 hover:text-white flex items-center justify-center font-bold text-lg transition-all scale-105 hover:scale-115">
+                                                -2
+                                            </button>
+                                        </div>
+
+                                        <span className="text-xs text-rose-400 font-bold tracking-wider">TIDAK SETUJU</span>
+                                    </div>
+
+                                    <div className="flex justify-between items-center border-t border-slate-700/60 pt-6 mt-8">
+                                        <button 
+                                            disabled={currentQIndex === 0} 
+                                            onClick={() => setCurrentQIndex(prev => prev - 1)}
+                                            className="text-slate-400 hover:text-white text-sm flex items-center space-x-1.5 disabled:opacity-30 transition-all"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                                            </svg>
+                                            <span>Kembali</span>
+                                        </button>
+
+                                        {currentQIndex === questions.length - 1 ? (
+                                            <button 
+                                                disabled={answers[questions[currentQIndex].id] === undefined && answersRef.current[questions[currentQIndex].id] === undefined} 
+                                                onClick={calculateResult}
+                                                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold px-6 py-2.5 rounded-xl text-sm flex items-center space-x-1.5 shadow-md shadow-indigo-600/20 transition-all"
+                                            >
+                                                <span>Hitung Hasil</span>
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                            </button>
+                                        ) : (
+                                            <button 
+                                                disabled={answers[questions[currentQIndex].id] === undefined} 
+                                                onClick={() => setCurrentQIndex(prev => prev + 1)}
+                                                className="text-indigo-400 hover:text-indigo-300 font-bold text-sm flex items-center space-x-1.5 transition-all"
+                                            >
+                                                <span>Lanjut</span>
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                                </svg>
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 3. TAMPILAN LAPORAN HASIL KEPRIBADIAN */}
+                        {step === 'result' && resultMBTI && mbtiDetails[resultMBTI] && (
+                            <div className="w-full space-y-6">
+                                <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 md:p-8 shadow-xl relative overflow-hidden">
+                                    <div className="absolute -top-12 -right-12 w-48 h-48 bg-indigo-500/10 rounded-full blur-2xl"></div>
+                                    <div className="flex flex-col md:flex-row justify-between items-center gap-6">
+                                        <div className="text-center md:text-left space-y-2">
+                                            <span className="text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-3 py-1 rounded-full font-bold">
+                                                ANALISIS KEPRIBADIAN SELESAI
+                                            </span>
+                                            <p className="text-slate-400 text-sm mt-3">Halo <span className="text-white font-bold">{userData.name}</span>, tipe kepribadian Anda adalah:</p>
+                                            <h3 className="text-5xl font-extrabold text-indigo-400 tracking-wider font-mono">{resultMBTI}</h3>
+                                            <h4 className="text-xl font-bold text-white">Sang {mbtiDetails[resultMBTI].title}</h4>
+                                        </div>
+
+                                        <div className="bg-slate-900 border border-slate-700/60 p-4 rounded-xl w-full md:w-80 space-y-3">
+                                            <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Persentase Aspek Anda:</h5>
+                                            
+                                            {/* EI */}
+                                            <div className="space-y-1">
+                                                <div className="flex justify-between text-xs font-semibold">
+                                                    <span>E ({scorePercentages.EI}%)</span>
+                                                    <span>I ({100 - scorePercentages.EI}%)</span>
+                                                </div>
+                                                <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden flex">
+                                                    <div className="bg-indigo-500 h-full" style={{ width: `${scorePercentages.EI}%` }}></div>
+                                                    <div className="bg-purple-500 h-full" style={{ width: `${100 - scorePercentages.EI}%` }}></div>
+                                                </div>
+                                            </div>
+
+                                            {/* SN */}
+                                            <div className="space-y-1">
+                                                <div className="flex justify-between text-xs font-semibold">
+                                                    <span>S ({scorePercentages.SN}%)</span>
+                                                    <span>N ({100 - scorePercentages.SN}%)</span>
+                                                </div>
+                                                <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden flex">
+                                                    <div className="bg-indigo-500 h-full" style={{ width: `${scorePercentages.SN}%` }}></div>
+                                                    <div className="bg-purple-500 h-full" style={{ width: `${100 - scorePercentages.SN}%` }}></div>
+                                                </div>
+                                            </div>
+
+                                            {/* TF */}
+                                            <div className="space-y-1">
+                                                <div className="flex justify-between text-xs font-semibold">
+                                                    <span>T ({scorePercentages.TF}%)</span>
+                                                    <span>F ({100 - scorePercentages.TF}%)</span>
+                                                </div>
+                                                <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden flex">
+                                                    <div className="bg-indigo-500 h-full" style={{ width: `${scorePercentages.TF}%` }}></div>
+                                                    <div className="bg-purple-500 h-full" style={{ width: `${100 - scorePercentages.TF}%` }}></div>
+                                                </div>
+                                            </div>
+
+                                            {/* JP */}
+                                            <div className="space-y-1">
+                                                <div className="flex justify-between text-xs font-semibold">
+                                                    <span>J ({scorePercentages.JP}%)</span>
+                                                    <span>P ({100 - scorePercentages.JP}%)</span>
+                                                </div>
+                                                <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden flex">
+                                                    <div className="bg-indigo-500 h-full" style={{ width: `${scorePercentages.JP}%` }}></div>
+                                                    <div className="bg-purple-500 h-full" style={{ width: `${100 - scorePercentages.JP}%` }}></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 space-y-4">
+                                        <h5 className="font-bold text-white text-lg">Deskripsi Karakter</h5>
+                                        <p className="text-sm text-slate-300 leading-relaxed">{mbtiDetails[resultMBTI].desc}</p>
+                                        <h5 className="font-bold text-white pt-2">Kekuatan Utama</h5>
+                                        <ul className="grid grid-cols-2 gap-2 text-xs">
+                                            {mbtiDetails[resultMBTI].strengths.map((st, i) => (
+                                                <li key={i} className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 px-3 py-2 rounded-lg flex items-center">
+                                                    ✓ {st}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+
+                                    <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 space-y-4">
+                                        <h5 className="font-bold text-white text-lg">Rekomendasi Karir</h5>
+                                        <div className="flex flex-wrap gap-2">
+                                            {mbtiDetails[resultMBTI].careers.map((car, i) => (
+                                                <span key={i} className="bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 px-3 py-1.5 rounded-lg text-xs font-medium">
+                                                    {car}
+                                                </span>
+                                            ))}
+                                        </div>
+                                        <h5 className="font-bold text-white pt-2">Tantangan Pengembangan</h5>
+                                        <ul className="text-xs space-y-2">
+                                            {mbtiDetails[resultMBTI].weaknesses.map((we, i) => (
+                                                <li key={i} className="bg-rose-500/10 border border-rose-500/20 text-rose-300 px-3 py-2 rounded-lg">
+                                                    • {we}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-wrap justify-center gap-3">
+                                    <button onClick={downloadPDF} className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-6 py-3 rounded-xl transition-all flex items-center space-x-2 shadow-lg shadow-indigo-600/30">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        <span>Unduh Hasil (PDF)</span>
+                                    </button>
+                                    <button onClick={() => setStep('welcome')} className="bg-slate-700 hover:bg-slate-600 text-white font-semibold px-6 py-3 rounded-xl transition-all">
+                                        Ulangi Tes MBTI
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 4. TAMPILAN ADMIN */}
+                        {step === 'admin' && (
+                            <div className="w-full bg-slate-800 border border-slate-700 rounded-2xl p-6 md:p-8 shadow-xl">
+                                {!isAdminLoggedIn ? (
+                                    <div className="max-w-md mx-auto text-center py-6 space-y-4">
+                                        <h3 className="text-xl font-bold text-white">Dasbor Admin</h3>
+                                        <p className="text-xs text-slate-400">Gunakan kata sandi default untuk memantau data & ekspor ke Excel.</p>
+                                        <form onSubmit={handleAdminLogin} className="space-y-4">
+                                            <input required type="password" placeholder="Masukkan Password Admin" value={adminPassword} onChange={e => setAdminPassword(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-center focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                                            {adminError && <p className="text-xs text-rose-400">{adminError}</p>}
+                                            <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition-all">
+                                                Masuk Dasbor
+                                            </button>
+                                        </form>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-6">
+                                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-700 pb-4">
+                                            <div>
+                                                <h3 className="text-xl font-bold text-white">Data Hasil Responden</h3>
+                                                <p className="text-xs text-slate-400">Total {savedSubmissions.length} orang telah mengisi tes.</p>
+                                            </div>
+                                            <div className="flex space-x-2 w-full sm:w-auto">
+                                                <button onClick={exportAllImages} disabled={!!exportProgress} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center space-x-1.5 transition-all">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                    </svg>
+                                                    <span>{exportProgress || 'Unduh Semua Gambar (ZIP)'}</span>
+                                                </button>
+                                                <button onClick={() => { setIsAdminLoggedIn(false); setAdminPassword(''); }} className="bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-bold px-3 py-2.5 rounded-lg transition-all">
+                                                    Log Out
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Search Bar */}
+                                        <div className="relative">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                            </svg>
+                                            <input
+                                                type="text"
+                                                value={searchQuery}
+                                                onChange={e => setSearchQuery(e.target.value)}
+                                                placeholder="Cari berdasarkan Nama atau NIK..."
+                                                className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-200 placeholder-slate-500"
+                                            />
+                                            {searchQuery && (
+                                                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">✕</button>
+                                            )}
+                                        </div>
+
+                                        {savedSubmissions.length === 0 ? (
+                                            <p className="text-center py-12 text-slate-500 text-sm">Belum ada data pendaftar.</p>
+                                        ) : (() => {
+                                            const filtered = savedSubmissions.filter(sub => {
+                                                const q = searchQuery.toLowerCase();
+                                                return !q || (sub.name || '').toLowerCase().includes(q) || (sub.nik || '').toLowerCase().includes(q);
+                                            });
+                                            return (
+                                            <div className="overflow-x-auto rounded-xl border border-slate-700 bg-slate-900/60">
+                                                {filtered.length === 0 ? (
+                                                    <p className="text-center py-12 text-slate-500 text-sm">Tidak ada hasil untuk "{searchQuery}".</p>
+                                                ) : (
+                                                <table className="w-full text-left text-xs border-collapse">
+                                                    <thead>
+                                                        <tr className="bg-slate-800 border-b border-slate-700 text-slate-400 uppercase font-semibold">
+                                                            <th className="py-3 px-4">Nama</th>
+                                                            <th className="py-3 px-4">NIK</th>
+                                                            <th className="py-3 px-4">Jabatan</th>
+                                                            <th className="py-3 px-4">Area Kerja</th>
+                                                            <th className="py-3 px-4">Email / WA</th>
+                                                            <th className="py-3 px-4 text-center">Hasil MBTI</th>
+                                                            <th className="py-3 px-4 text-right">Tanggal</th>
+                                                            <th className="py-3 px-4 text-center">Unduh</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-800 text-slate-300">
+                                                        {filtered.map((sub, i) => (
+                                                            <tr key={i} className="hover:bg-slate-800/40">
+                                                                <td className="py-3.5 px-4 font-bold text-white">{sub.name}</td>
+                                                                <td className="py-3.5 px-4 text-slate-300 font-mono">{sub.nik || '-'}</td>
+                                                                <td className="py-3.5 px-4 text-slate-300">{sub.position || '-'}</td>
+                                                                <td className="py-3.5 px-4 text-slate-300">{sub.area || '-'}</td>
+                                                                <td className="py-3.5 px-4">
+                                                                    <div>{sub.email}</div>
+                                                                    <div className="text-[10px] text-slate-500">WA: {sub.whatsapp}</div>
+                                                                </td>
+                                                                <td className="py-3.5 px-4 text-center">
+                                                                    <span className="bg-indigo-500/10 text-indigo-400 font-bold px-2 py-1 rounded border border-indigo-500/20">
+                                                                        {sub.mbti}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="py-3.5 px-4 text-right text-slate-500">{sub.formattedDate}</td>
+                                                                <td className="py-3.5 px-4 text-center">
+                                                                    <button
+                                                                        onClick={() => downloadResultImage(sub)}
+                                                                        title="Unduh hasil sebagai gambar"
+                                                                        className="bg-indigo-500/10 hover:bg-indigo-500 border border-indigo-500/30 text-indigo-400 hover:text-white p-1.5 rounded-lg transition-all"
+                                                                    >
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                                        </svg>
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                                )}
+                                                {filtered.length > 0 && searchQuery && (
+                                                    <p className="text-center py-2 text-xs text-slate-500">Menampilkan {filtered.length} dari {savedSubmissions.length} data</p>
+                                                )}
+                                            </div>
+                                            );
+                                        })()}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                    </main>
+
+                    {/* Footer */}
+                    <footer className="bg-slate-950/40 border-t border-slate-800/80 py-4 text-center text-[10px] text-slate-600">
+                        <p>© 2026 MBTI Sync Pro. Dilengkapi Basis Data Real-time & Sistem Ekspor PDF Terintegrasi.</p>
+                    </footer>
+                </div>
+            );
+        }
+
+        // Render aplikasi
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
